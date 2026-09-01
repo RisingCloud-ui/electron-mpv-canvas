@@ -1,0 +1,22 @@
+{
+  "name": "electron-mpv-canvas",
+  "version": "0.1.0",
+  "description": "Render mpv's video output as a real WebGL texture inside an Electron page, so HTML/CSS controls can sit on top of the video like any other DOM element. GPU-decoded via libmpv's render API, no PPAPI, no --wid window embedding.",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "build:electron": "electron-rebuild -f -w electron-mpv-canvas",
+    "test:standalone": "node test/standalone-test.js",
+    "start": "electron electron/main.js"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-rebuild": "^3.2.9",
+    "node-gyp": "^10.0.1"
+  },
+  "gypfile": true
+}

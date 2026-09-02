@@ -5,3 +5,6 @@ Release/
 *.log
 .vscode/
 .DS_Store
+
+# libmpv SDK binaries (GPL/LGPL — never commit; see LICENSING.md)
+third_party/

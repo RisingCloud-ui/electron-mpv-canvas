@@ -5,12 +5,13 @@ Electron page — so your HTML/CSS controls (progress bar, subtitles overlay,
 frosted-glass toolbars, whatever) sit *on top of* the video like any other DOM
 element, instead of being covered by a separate native window.
 
-**Status: early / unverified.** This is a from-scratch implementation of a
-documented architecture pattern (GPU render API → PBO readback → WebGL
-texture), built and type-checked, but **not yet build-tested on real Windows
-hardware**. Treat it as "structurally correct, needs field-testing" rather
-than a polished release. Issues and PRs very welcome — this is exactly the
-stage where real-hardware feedback matters most.
+**Status: works on Windows, field-tested.** The code in this repository was
+extracted from a production Electron app that has shipped this exact pipeline
+(GPU render API → PBO readback → WebGL texture) through real playback on
+NVIDIA hardware (nvdec hardware decoding confirmed), including the standalone
+native test and the full Electron integration. It is a small, focused codebase
+rather than a polished release — macOS/Linux are still unimplemented, and the
+API surface may still move. Issues and PRs very welcome.
 
 ## Why this exists
 
@@ -45,7 +46,8 @@ libmpv (hwdec + opengl render API)
   → offscreen FBO render (Windows: hidden-window WGL context)
   → double-buffered PBO async readback (one copy, not a busy-wait)
   → N-API ThreadSafeFunction → Electron UtilityProcess
-  → MessagePort transfer (ArrayBuffer, not structured-clone copy) → renderer
+  → MessagePort handoff to renderer (structured clone; see DESIGN.md why
+    a true zero-copy transfer is not possible inside Electron)
   → WebGL texImage2D + requestAnimationFrame (latest-frame-only, drops stale frames)
 ```
 
@@ -57,7 +59,7 @@ UtilityProcess instead of the main process, why WGL instead of ANGLE) is in
 
 | Platform | Status |
 |---|---|
-| Windows | Implemented (WGL offscreen context). Untested on real hardware — see Status above. |
+| Windows | Implemented (WGL offscreen context). Field-tested: standalone + Electron integration, hwdec (nvdec) confirmed, 1080p/1440p/4K60 all hold full frame rate in the source app this was extracted from. |
 | macOS | Not implemented. Would need a CGL/Metal offscreen context in place of `gl_context_win.*`. PRs welcome. |
 | Linux | Not implemented. Would need GLX/EGL. PRs welcome. |
 
@@ -65,17 +67,27 @@ UtilityProcess instead of the main process, why WGL instead of ANGLE) is in
 
 ```bash
 npm install
-# Requires: Visual Studio Build Tools, a libmpv Windows dev package
-# (see LICENSING.md for GPL vs LGPL build sources), MPV_SDK_DIR env var set.
+# Requires: Visual Studio Build Tools (with C++ workload), Node.js, and a
+# libmpv Windows dev package (see LICENSING.md for GPL vs LGPL build sources).
+# By default the build expects the SDK at ./third_party/mpv-dev — drop your
+# SDK there (include/ + libmpv.dll.a + libmpv-2.dll), or set MPV_SDK_DIR to a
+# repo-relative path.
 npm run build
 npm run test:standalone -- path/to/video.mp4   # verify outside Electron first
 npm run build:electron
-npm start
+npm start -- path/to/video.mp4                 # auto-plays; or use the Open button
 ```
 
+The demo window renders the video into a WebGL `<canvas>` with HTML controls
+floating on top (play/pause, seek bar, fps counter) — that overlay is the whole
+point.
+
+> **Windows toolchain note:** use `@electron/rebuild` ≥ 4.2 (what this repo
+> pins). Older 3.x bundles a node-gyp fork that fails on current VS Build
+> Tools / Python. See [`README-BUILD.md`](./README-BUILD.md).
+
 See [`README-BUILD.md`](./README-BUILD.md) for the full build/troubleshooting
-guide (this was the original skeleton's README; kept as-is since the build
-instructions are still accurate).
+guide.
 
 ## Licensing — read this before you ship
 

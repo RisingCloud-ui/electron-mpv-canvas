@@ -78,10 +78,12 @@ private:
             pkt->h = h;
 
             auto status = frameTsfn_.NonBlockingCall(pkt, [](Napi::Env env, Napi::Function jsCb, FrameData *d) {
-                Napi::Buffer<uint8_t> buffer = Napi::Buffer<uint8_t>::New(
-                    env, d->buf, d->size,
-                    [](Napi::Env, uint8_t *p) { delete[] p; });
+                // Electron 禁用 napi_create_external_buffer(NAPI_NO_EXTERNAL_BUFFERS),
+                // 不能在自有内存上建零拷贝 Buffer(standalone Node 可以)——只能 Copy,
+                // 多一次拷贝是 Electron 环境的硬约束。
+                Napi::Buffer<uint8_t> buffer = Napi::Buffer<uint8_t>::Copy(env, d->buf, d->size);
                 jsCb.Call({buffer, Napi::Number::New(env, d->w), Napi::Number::New(env, d->h)});
+                delete[] d->buf;
                 delete d;
             });
             if (status != napi_ok) {

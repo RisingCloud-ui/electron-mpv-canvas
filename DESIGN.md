@@ -44,11 +44,54 @@ sandboxed renderer process, which can't load native addons directly.
 RGBA frame (~33MB), that's a real copy on every single frame. A `MessagePort`
 created via `MessageChannelMain`, with one end handed to the UtilityProcess
 and the other end handed directly to the renderer (via the documented
-preload → `window.postMessage(..., [port])` handoff), lets frame `ArrayBuffer`s
-be *transferred* rather than cloned — no copy, ownership just moves. The one
-thing to get right: the `ArrayBuffer` you transfer needs to be a real V8-owned
-buffer, not one wrapping N-API "external" memory with a custom finalizer —
-see the code comments in `mpv-worker.js` for why.
+preload → `window.postMessage(..., [port])` handoff), skips the main process
+entirely: frames flow worker → renderer without an extra hop through the
+main process's JS. (Originally the hope was *zero-copy* ArrayBuffer transfer
+here; reality inside Electron is more constrained — see "Field-tested
+constraints" below.)
+
+## Field-tested constraints (learned the hard way, verified on hardware)
+
+These were discovered by actually building and running this pipeline inside a
+production Electron app. They contradict what the docs alone would suggest:
+
+1. **Electron forbids external buffers.** `napi_create_external_buffer` is
+   disabled in Electron (`NAPI_NO_EXTERNAL_BUFFERS`) — you cannot wrap the
+   addon's own memory in a zero-copy Buffer. Standalone Node allows it, so
+   the standalone test can hide this bug. The addon must `Buffer::Copy`.
+2. **MessagePort transferList rejects ArrayBuffers.** Inside a
+   utilityProcess, `port.postMessage(msg, [arrayBuffer])` throws
+   "Port at index 0 is not a valid port" — only MessagePorts are transferable.
+   So frames cross via structured clone of a Node `Buffer` (itself a clonable
+   view): one copy, but no main-process hop and no per-frame `postMessage`
+   through `webContents`.
+3. **`flipY`: glReadPixels is already bottom-up.** Flipping again in the
+   shader yields an upside-down image. Verified empirically; the pixel path
+   needs no flip at all.
+4. **`stdio: 'inherit'` silently loses worker logs on Windows.** Use
+   `stdio: 'pipe'` and forward the streams yourself (guard the writes — a
+   dead terminal must not take the main process down via EPIPE).
+5. **MSVC reads UTF-8 sources as GBK** unless `/utf-8` is passed. A full-width
+   punctuation byte at end of a comment line swallows the newline and merges
+   the next code line into the comment — with error line numbers that point
+   nowhere. `binding.gyp` sets it; keep it.
+6. **A MessagePort can only be transferred once.** Every renderer
+   (re)mount must request a fresh `MessageChannel` — the worker keeps
+   whichever port arrived last and drops the old one on its `close` event.
+   Hardcoding one port in the startup flow breaks page reloads and
+   multi-mount UIs.
+7. **`loop-file=inf` swallows EOF.** Playback-end detection reads the
+   `eof-reached` property (set under `keep-open=yes`), not the `end-file`
+   event — seeking/loading files also fires `end-file`, which would
+   conflate "user switched file" with "playback finished". Never loop by
+   default; the property only sets on natural end or error-induced idle.
+8. **DLL loading is PATH-based.** `libmpv-2.dll` has no explicit
+   `LoadLibrary` path, so the worker's `PATH` gets the SDK directory
+   prepended at fork time (see `mpv-service.js`) — don't rely on the DLL
+   being globally installed.
+9. **Toolchain:** `@electron/rebuild` ≥ 4.2 (older 3.x bundles a node-gyp
+   fork that fails on current VS Build Tools / Python), `node-gyp` ≥ 13,
+   `/utf-8` as above.
 
 ## Why does the renderer only ever draw the *latest* frame?
 

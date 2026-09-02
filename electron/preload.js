@@ -4,14 +4,20 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 控制类 API:低频操作,直接走 ipcRenderer.invoke,简单可靠。
 contextBridge.exposeInMainWorld('mpvControl', {
-  loadFile: (path) => ipcRenderer.invoke('mpv-control', { method: 'loadFile', args: [path] }),
-  play: () => ipcRenderer.invoke('mpv-control', { method: 'play', args: [] }),
-  pause: () => ipcRenderer.invoke('mpv-control', { method: 'pause', args: [] }),
-  seek: (seconds, mode) => ipcRenderer.invoke('mpv-control', { method: 'seek', args: [seconds, mode] }),
-  setProperty: (name, value) => ipcRenderer.invoke('mpv-control', { method: 'setProperty', args: [name, value] }),
-  observeProperty: (name) => ipcRenderer.invoke('mpv-control', { method: 'observeProperty', args: [name] }),
-  resize: (w, h) => ipcRenderer.invoke('mpv-control', { method: 'resize', args: [w, h] }),
+  loadFile: (path) => ipcRenderer.invoke('mpv-control', 'loadFile', [path]),
+  play: () => ipcRenderer.invoke('mpv-control', 'play', []),
+  pause: () => ipcRenderer.invoke('mpv-control', 'pause', []),
+  seek: (seconds, mode) => ipcRenderer.invoke('mpv-control', 'seek', [seconds, mode]),
+  setProperty: (name, value) => ipcRenderer.invoke('mpv-control', 'setProperty', [name, value]),
+  observeProperty: (name) => ipcRenderer.invoke('mpv-control', 'observeProperty', [name]),
+  resize: (w, h) => ipcRenderer.invoke('mpv-control', 'resize', [w, h]),
+  getStatus: () => ipcRenderer.invoke('mpv-status'),
+  pickFile: () => ipcRenderer.invoke('mpv-pick-file'),
+  // 每次调用都让主进程新建一条 MessageChannel(MessagePort 只能转移一次——
+  // 页面重载/重新挂载后必须重新申请,不能复用旧端口)
+  requestFramePort: () => ipcRenderer.invoke('frame-port-request'),
   onWorkerMessage: (cb) => ipcRenderer.on('mpv-worker-message', (_e, msg) => cb(msg)),
+  onStatus: (cb) => ipcRenderer.on('mpv-status', (_e, status) => cb(status)),
 });
 
 // 帧数据端口:contextBridge 不能直接传递 MessagePort 对象给主世界的 JS,

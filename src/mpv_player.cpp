@@ -1,7 +1,6 @@
 #include "mpv_player.h"
 #include "gl_loader.h"
 #include <cstdio>
-#include <cstring>
 
 MpvPlayer::MpvPlayer() {}
 MpvPlayer::~MpvPlayer() { Shutdown(); }
@@ -123,8 +122,6 @@ void MpvPlayer::RenderThreadMain() {
         return;
     }
 
-    std::vector<uint8_t> scratch; // 拷贝出的一帧数据,复用避免每帧 new/delete
-
     while (running_) {
         {
             std::unique_lock<std::mutex> lk(renderMutex_);
@@ -150,7 +147,7 @@ void MpvPlayer::RenderThreadMain() {
         mpvFbo.h = h;
         mpvFbo.internal_format = GL_RGBA8;
 
-        int flipY = 1; // 让输出方向匹配常见的"左上角为原点"图像约定,便于后面直接喂给 canvas
+        int flipY = 0; // 实测:glReadPixels 自带自底向上翻转,再 flipY=1 会二次翻转成倒像(skeleton 未编译验证的猜测,阶段 0 实测修正)
         mpv_render_param renderParams[] = {
             {MPV_RENDER_PARAM_OPENGL_FBO, &mpvFbo},
             {MPV_RENDER_PARAM_FLIP_Y, &flipY},
@@ -173,10 +170,10 @@ void MpvPlayer::RenderThreadMain() {
             gGl.glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_[readIndex]);
             void *ptr = gGl.glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, bufSize, GL_MAP_READ_BIT);
             if (ptr) {
-                scratch.resize(bufSize);
-                std::memcpy(scratch.data(), ptr, bufSize);
+                // 阶段 0 优化:直接把映射内存交给回调(addon.cpp 同步 memcpy 进 FrameData),
+                // 省掉 skeleton 的 scratch 中转拷贝(原①②两次合成一次)。
+                frameCallback_(static_cast<const uint8_t *>(ptr), bufSize, w, h);
                 gGl.glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-                frameCallback_(scratch.data(), scratch.size(), w, h);
             }
             gGl.glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         }

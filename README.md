@@ -59,7 +59,7 @@ UtilityProcess instead of the main process, why WGL instead of ANGLE) is in
 
 | Platform | Status |
 |---|---|
-| Windows | Implemented (WGL offscreen context). Field-tested: standalone + Electron integration, hwdec (nvdec) confirmed, 1080p/1440p/4K60 all hold full frame rate in the source app this was extracted from. |
+| Windows | Implemented (WGL offscreen context). Field-tested: standalone + Electron integration, hwdec (nvdec) confirmed. Instrumented frame-rate measurements (2026-09-03): 1080p60 / 4K30 / 4K60 all hold full frame rate when the canvas is rendered at window size (production usage). Caveat: on hybrid-GPU laptops the driver may downclock the dGPU; with a 4K-sized canvas this throttles compositing to single-digit fps (frame delivery stays at full rate — decode is a fixed-function block and is unaffected). Keep the canvas at window size. |
 | macOS | Not implemented. Would need a CGL/Metal offscreen context in place of `gl_context_win.*`. PRs welcome. |
 | Linux | Not implemented. Would need GLX/EGL. PRs welcome. |
 

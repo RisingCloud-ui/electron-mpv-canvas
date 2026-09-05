@@ -34,7 +34,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node >= 22.10: node-gyp 13 bundles an undici that calls
+          # webidl.util.markAsUncloneable, which does not exist on Node 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies

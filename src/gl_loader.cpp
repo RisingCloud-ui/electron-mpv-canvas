@@ -23,12 +23,15 @@ bool LoadGlFunctions() {
 }
 
 void *MpvGetProcAddress(void * /*ctx*/, const char *name) {
-    // 扩展函数(FBO/PBO/以及 mpv 需要的其它 3.x+ 函数)走 wglGetProcAddress
+    // Extension functions (FBO/PBO and other 3.x+ entry points mpv needs) go
+    // through wglGetProcAddress
     void *p = (void *)wglGetProcAddress(name);
-    // 部分驱动对不存在的函数返回 0/1/2/3/-1 这几个哨兵值,不是合法指针,要过滤掉
+    // Some drivers return the sentinel values 0/1/2/3/-1 for missing functions
+    // instead of a null pointer — filter those out
     if (p == nullptr || p == (void *)0x1 || p == (void *)0x2 ||
         p == (void *)0x3 || p == (void *)-1) {
-        // 回退到 opengl32.dll 里的 1.1 核心函数(glGetString / glBindTexture / glReadPixels 等)
+        // Fall back to the GL 1.1 core functions in opengl32.dll
+        // (glGetString / glBindTexture / glReadPixels / ...)
         if (!gOpenGL32Module) {
             gOpenGL32Module = GetModuleHandleA("opengl32.dll");
         }

@@ -8,7 +8,7 @@ if (!gl) {
   throw new Error('WebGL2 unavailable');
 }
 
-// ---- 最小可用的"画一张贴图铺满全屏"WebGL 管线 ----
+// ---- Minimal "draw one texture fullscreen" WebGL pipeline ----
 const vsSrc = `#version 300 es
   const vec2 pos[4] = vec2[4](vec2(-1.,-1.), vec2(1.,-1.), vec2(-1.,1.), vec2(1.,1.));
   const vec2 uv[4]  = vec2[4](vec2(0.,1.), vec2(1.,1.), vec2(0.,0.), vec2(1.,0.));
@@ -49,7 +49,7 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-// ---- 帧队列:只保留"最新一帧",rAF 消费,旧帧直接丢弃 ----
+// ---- Frame queue: keep only the latest frame, consume it in rAF, drop stale ones ----
 let latestFrame = null; // { width, height, data }
 let frameCount = 0;
 let fpsWindowStart = performance.now();
@@ -63,17 +63,18 @@ window.addEventListener('message', (event) => {
       if (e.data.type === 'frame') {
         recvCount++;
         if (recvCount % 60 === 1) console.log('[renderer] frames recv:', recvCount);
-        latestFrame = e.data; // 覆盖旧帧——慢渲染只丢帧,不积累延迟
+        latestFrame = e.data; // overwrite the old frame — slow rendering drops frames instead of accumulating latency
       }
     };
   }
 });
 
-// 主动要一条帧端口。可以重复调用:页面重载/重新挂载后都应再要一条新的,
-// worker 侧保留最后到达的端口,旧端口 close 后自动停发。
+// Ask for a frame port. Safe to call repeatedly: after a page reload or remount
+// you should request a fresh one — the worker keeps the most recently arrived
+// port and automatically stops sending once the old port closes.
 window.mpvControl.requestFramePort();
 
-// 压测:URL 带 ?fixed=WxH 时锁定渲染分辨率(不随窗口缩放)
+// Benchmarking: ?fixed=WxH in the URL pins the render resolution (no window-resize follow)
 const fixedSize = (() => {
   const m = /[?&]fixed=(\d+)x(\d+)/.exec(location.search);
   return m ? { w: +m[1], h: +m[2] } : null;
@@ -96,7 +97,7 @@ function resizeCanvasToDisplaySize() {
     canvas.width = w;
     canvas.height = h;
     gl.viewport(0, 0, w, h);
-    window.mpvControl.resize(w, h); // 通知 mpv 侧同步渲染分辨率
+    window.mpvControl.resize(w, h); // keep mpv's render resolution in sync
   }
 }
 
@@ -107,8 +108,8 @@ function draw() {
     const { width, height, data } = latestFrame;
     latestFrame = null;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    // worker 发来的是 structured clone 过的 Buffer(Uint8Array 视图),直接上纹理;
-    // 兼容将来换成可 transfer 的 ArrayBuffer 形态
+    // The worker sends a structured-cloned Buffer (a Uint8Array view) — upload it
+    // directly; also compatible with a future transferable ArrayBuffer shape
     const pixels = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     frameCount++;
@@ -128,7 +129,7 @@ function draw() {
 }
 requestAnimationFrame(draw);
 
-// ---- 控件绑定 ----
+// ---- Control bindings ----
 document.getElementById('btn-play').onclick = () => window.mpvControl.play();
 document.getElementById('btn-pause').onclick = () => window.mpvControl.pause();
 document.getElementById('btn-open').onclick = async () => {
@@ -136,12 +137,15 @@ document.getElementById('btn-open').onclick = async () => {
   if (file) window.mpvControl.loadFile(file);
 };
 
-// ---- 进度条:worker 已 observe time-pos/duration,事件经主进程转发到这里 ----
-// ⚠️ addon 以 MPV_FORMAT_STRING 观察属性——数值回读也是字符串,必须 parseFloat
+// ---- Seek bar: the worker observes time-pos/duration; events are relayed here
+// through the main process ----
+// ⚠️ the addon observes properties with MPV_FORMAT_STRING — numeric values come
+// back as strings and must be converted with Number()/parseFloat
 const progress = document.getElementById('progress');
 let duration = 0;
 progress.addEventListener('change', () => {
-  // EOF 停末帧(keep-open)后拖回任意位置即可重播——seek 会复位 eof-reached
+  // After EOF holds the last frame (keep-open), seeking anywhere resumes playback —
+  // seek resets eof-reached
   window.mpvControl.seek(progress.value, 'absolute');
   window.mpvControl.play();
 });

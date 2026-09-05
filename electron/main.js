@@ -1,13 +1,14 @@
 'use strict';
 
-// Electron 集成示例。分层:
-//   renderer.js  —— WebGL 显示 + 控制面板(纯 DOM,无框架)
-//   preload.js   —— contextBridge 控制面 API + 帧端口中继(MessagePort 无法过桥)
-//   main.js      —— 本文件:窗口 + IPC 路由
-//   mpv-service.js —— worker 生命周期/帧端口分发(可复用的通用层)
-//   mpv-worker.js —— UtilityProcess:加载原生 addon,libmpv 渲染 + PBO 读回
+// Electron integration example. Layers:
+//   renderer.js    — WebGL display + control panel (plain DOM, no framework)
+//   preload.js     — contextBridge control-plane API + frame-port relay (a
+//                    MessagePort cannot cross the context bridge)
+//   main.js        — this file: window + IPC routing
+//   mpv-service.js — worker lifecycle / frame-port distribution (reusable layer)
+//   mpv-worker.js  — UtilityProcess: loads the native addon, libmpv render + PBO readback
 //
-// 用法:npm start [-- 视频文件路径](带路径则窗口打开后自动加载播放)
+// Usage: npm start [-- path/to/video] (passing a path auto-loads and plays it)
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
@@ -26,17 +27,18 @@ function createWindow() {
       sandbox: true,
     },
   });
-  // 压测:--size=WxH 锁定渲染分辨率,经 query 传给 renderer
+  // Benchmarking: --size=WxH pins the render resolution, passed to the renderer via query
   const cliArgs = process.argv.slice(2);
   const sizeArg = (cliArgs.find((a) => a.startsWith('--size=')) || '').split('=')[1];
   win.loadFile(path.join(__dirname, 'renderer.html'), sizeArg ? { query: { fixed: sizeArg } } : undefined);
 
-  // 渲染进程 console 转发到终端(调试方便)
+  // Forward renderer console messages to the terminal (handy for debugging)
   win.webContents.on('console-message', (_e, _level, message) => {
     console.log('[renderer-console]', message);
   });
 
-  // 命令行带视频路径 → 窗口加载完成后自动播放(electron main.js C:/path/video.mp4)
+  // Video path on the command line -> auto-load and play once the window finishes
+  // loading (electron main.js C:/path/video.mp4)
   const videoArg = cliArgs.find((a) => !a.startsWith('-'));
   if (videoArg) {
     win.webContents.once('did-finish-load', () => {
@@ -46,9 +48,9 @@ function createWindow() {
   }
 }
 
-// ---- IPC 路由 ----
+// ---- IPC routing ----
 
-// 控制指令(播放/暂停/进度/加载文件):低频操作,普通 IPC 拷贝完全够用
+// Control commands (play/pause/seek/load file): low-frequency, ordinary IPC copies are plenty
 ipcMain.handle('mpv-control', (_event, method, args) => {
   try {
     mpv.control(method, args ?? []);
@@ -58,8 +60,9 @@ ipcMain.handle('mpv-control', (_event, method, args) => {
   }
 });
 
-// 帧端口申请:渲染端每次就绪都来要一条新 channel(MessagePort 只能转移一次,
-// 所以"重复申请"是常态而非异常——页面重载/组件重挂载都走这里)
+// Frame-port requests: the renderer asks for a fresh channel every time it becomes
+// ready (a MessagePort can only be transferred once, so "requesting again" is the
+// norm, not an exception — page reloads and component remounts all come through here)
 ipcMain.handle('frame-port-request', (event) => {
   try {
     mpv.getFramePort(event.sender);
@@ -71,8 +74,8 @@ ipcMain.handle('frame-port-request', (event) => {
 
 ipcMain.handle('mpv-status', () => ({ success: true, data: mpv.getStatus() }));
 
-// 可选 helper:通用"选一个视频文件"对话框。核心 API 只需要 loadFile(路径),
-// 这个只是让示例页不用手敲绝对路径。
+// Optional helper: a generic "pick a video file" dialog. The core API only needs
+// loadFile(path); this just spares the demo page from typing absolute paths.
 ipcMain.handle('mpv-pick-file', async () => {
   const result = await dialog.showOpenDialog(win, {
     title: 'Open a video file',

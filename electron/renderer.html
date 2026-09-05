@@ -14,8 +14,9 @@
       font-family: -apple-system, sans-serif; color: #fff;
     }
     button { cursor: pointer; }
-    /* 进度条就浮在 canvas 上——这正是本库的核心卖点:
-       视频只是 <canvas> 里的像素,任何 DOM 都能自由叠加 */
+    /* The seek bar floats on top of the canvas — that is the whole point
+       of this library: video is just pixels in a <canvas>, so any DOM
+       element can overlay it freely */
     #progress { flex: 1; cursor: pointer; }
   </style>
 </head>
@@ -25,7 +26,7 @@
     <div id="controls">
       <button id="btn-play">▶</button>
       <button id="btn-pause">⏸</button>
-      <button id="btn-open">打开视频</button>
+      <button id="btn-open">Open Video</button>
       <input id="progress" type="range" min="0" max="0" step="0.1" value="0" />
       <span id="fps">0 fps</span>
     </div>

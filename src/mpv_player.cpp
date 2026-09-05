@@ -6,8 +6,8 @@ MpvPlayer::MpvPlayer() {}
 MpvPlayer::~MpvPlayer() { Shutdown(); }
 
 void MpvPlayer::OnMpvRenderUpdate(void *ctx) {
-    // 这个回调可能从 mpv 内部的任意线程触发,只做最轻量的事:置位标志、唤醒渲染线程。
-    // 不能在这里直接调用 GL/渲染逻辑。
+    // This callback can fire from arbitrary mpv-internal threads: keep it minimal —
+    // set a flag and wake the render thread. Never call GL/render logic here.
     auto *self = static_cast<MpvPlayer *>(ctx);
     {
         std::lock_guard<std::mutex> lk(self->renderMutex_);
@@ -26,9 +26,9 @@ bool MpvPlayer::Init(int width, int height, std::string *errorOut) {
         return false;
     }
 
-    // ---- 硬解 + 画质相关选项 ----
-    mpv_set_option_string(mpv_, "hwdec", "auto");      // 硬件解码,Windows 上通常落到 d3d11va
-    mpv_set_option_string(mpv_, "vo", "libmpv");       // 通过 render API 而不是自己开窗口
+    // ---- Hardware decoding + quality-related options ----
+    mpv_set_option_string(mpv_, "hwdec", "auto");      // hardware decoding; on Windows usually lands on d3d11va
+    mpv_set_option_string(mpv_, "vo", "libmpv");       // render via the render API instead of opening its own window
     mpv_set_option_string(mpv_, "gpu-api", "opengl");
     mpv_set_option_string(mpv_, "keep-open", "yes");
     mpv_set_option_string(mpv_, "video-timing-offset", "0");
@@ -69,7 +69,7 @@ bool MpvPlayer::Init(int width, int height, std::string *errorOut) {
     mpv_render_context_set_update_callback(renderCtx_, OnMpvRenderUpdate, this);
 
     EnsureFboAndPbo(width_, height_);
-    glCtx_.Unbind(); // 渲染线程会自己重新 MakeCurrent
+    glCtx_.Unbind(); // the render thread re-issues MakeCurrent itself
 
     running_ = true;
     renderThread_ = std::thread(&MpvPlayer::RenderThreadMain, this);
@@ -78,7 +78,7 @@ bool MpvPlayer::Init(int width, int height, std::string *errorOut) {
 }
 
 void MpvPlayer::EnsureFboAndPbo(int w, int h) {
-    if (fbo_ != 0 && pboW_ == w && pboH_ == h) return; // 尺寸没变,复用
+    if (fbo_ != 0 && pboW_ == w && pboH_ == h) return; // same size — reuse
     DestroyGlResources();
 
     glGenTextures(1, &fboTex_);
@@ -147,31 +147,37 @@ void MpvPlayer::RenderThreadMain() {
         mpvFbo.h = h;
         mpvFbo.internal_format = GL_RGBA8;
 
-        int flipY = 0; // 实测:glReadPixels 自带自底向上翻转,再 flipY=1 会二次翻转成倒像(skeleton 未编译验证的猜测,阶段 0 实测修正)
+        int flipY = 0; // measured: glReadPixels already delivers bottom-up rows, so
+                       // flipY=1 would flip a second time into an upside-down image
+                       // (the never-compiled skeleton guessed otherwise; corrected by real testing)
         mpv_render_param renderParams[] = {
             {MPV_RENDER_PARAM_OPENGL_FBO, &mpvFbo},
             {MPV_RENDER_PARAM_FLIP_Y, &flipY},
             {MPV_RENDER_PARAM_INVALID, nullptr}};
         mpv_render_context_render(renderCtx_, renderParams);
 
-        // ---- 异步 PBO 读回:写入本帧到 pboWriteIndex_,读取"上一帧"的另一个 PBO ----
+        // ---- Async PBO readback: queue a DMA read of this frame into
+        // pbo_[pboWriteIndex_], then map the *other* PBO, which holds the
+        // previous frame ----
         size_t bufSize = static_cast<size_t>(w) * h * 4;
         gGl.glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
         gGl.glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_[pboWriteIndex_]);
-        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr); // offset=0,写入当前绑定的 PBO
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr); // offset=0: writes into the currently bound PBO
         gGl.glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         gGl.glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         int readIndex = 1 - pboWriteIndex_;
         framesRendered_++;
         if (framesRendered_ > 1 && frameCallback_) {
-            // 这个 PBO 里的数据是上一次迭代发起的 glReadPixels,
-            // 经过了一整帧的时间,DMA 传输大概率已经完成,map 时几乎不会阻塞。
+            // This PBO holds the glReadPixels issued one full iteration ago; the
+            // DMA transfer has had an entire frame of time to finish, so mapping
+            // it almost never blocks.
             gGl.glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_[readIndex]);
             void *ptr = gGl.glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, bufSize, GL_MAP_READ_BIT);
             if (ptr) {
-                // 阶段 0 优化:直接把映射内存交给回调(addon.cpp 同步 memcpy 进 FrameData),
-                // 省掉 skeleton 的 scratch 中转拷贝(原①②两次合成一次)。
+                // Hand the mapped memory straight to the callback (addon.cpp
+                // memcpy's it into FrameData synchronously), removing the
+                // skeleton's extra scratch-buffer hop (two copies merged into one).
                 frameCallback_(static_cast<const uint8_t *>(ptr), bufSize, w, h);
                 gGl.glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             }
@@ -186,7 +192,7 @@ void MpvPlayer::RenderThreadMain() {
 
 void MpvPlayer::EventThreadMain() {
     while (running_) {
-        mpv_event *event = mpv_wait_event(mpv_, 0.5); // 超时轮询,方便响应 running_=false
+        mpv_event *event = mpv_wait_event(mpv_, 0.5); // poll timeout so running_=false is noticed promptly
         if (event->event_id == MPV_EVENT_NONE) continue;
         if (event->event_id == MPV_EVENT_SHUTDOWN) break;
         if (eventCallback_) eventCallback_(event);
@@ -199,7 +205,7 @@ void MpvPlayer::Resize(int width, int height) {
         width_ = width;
         height_ = height;
     }
-    // 借用渲染信号机制触发一次重建 + 重绘
+    // Reuse the render-signal mechanism to trigger a reallocate + redraw
     {
         std::lock_guard<std::mutex> lk(renderMutex_);
         renderSignaled_ = true;
@@ -243,7 +249,7 @@ void MpvPlayer::Shutdown() {
     renderCv_.notify_all();
     if (renderThread_.joinable()) renderThread_.join();
 
-    if (mpv_) mpv_wakeup(mpv_); // 唤醒 event 线程里的 mpv_wait_event
+    if (mpv_) mpv_wakeup(mpv_); // wake the event thread's mpv_wait_event
     if (eventThread_.joinable()) eventThread_.join();
 
     if (renderCtx_) { mpv_render_context_free(renderCtx_); renderCtx_ = nullptr; }

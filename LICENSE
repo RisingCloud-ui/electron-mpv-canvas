@@ -22,7 +22,8 @@ SOFTWARE.
 
 ---
 
-本项目自身代码采用 MIT 协议。运行时依赖的 libmpv 是独立项目，其授权条款
-（GPLv2+ 默认，或 -Dgpl=false 编译得到 LGPLv2.1+）不受本协议影响，使用者
-需要自行选择并遵守所依赖的 libmpv 构建版本的授权条款。本项目不随附任何
-libmpv 二进制文件。
+This project's own code is released under the MIT license. libmpv, the
+runtime dependency, is an independent project whose licensing terms
+(GPLv2+ by default, or LGPLv2.1+ when built with -Dgpl=false) are unaffected
+by this license — you are responsible for choosing a libmpv build and
+complying with its license. This project does not ship any libmpv binaries.

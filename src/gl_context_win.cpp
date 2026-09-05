@@ -12,10 +12,12 @@ bool GlOffscreenContext::Create() {
     wc.lpfnWndProc = DummyWndProc;
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = kWndClassName;
-    // 多次 Create/Destroy(比如 addon 重复初始化)时 RegisterClass 可能已存在,忽略失败即可
+    // RegisterClass may already exist across Create/Destroy cycles (e.g. the
+    // addon being re-initialized) — ignore the failure
     RegisterClassW(&wc);
 
-    // HWND_MESSAGE:消息专用窗口,不会显示、不占任务栏,纯粹用来拿一个合法的 HDC
+    // HWND_MESSAGE: a message-only window — never shown, no taskbar entry;
+    // exists purely to obtain a valid HDC
     hwnd_ = CreateWindowW(kWndClassName, L"", 0, 0, 0, 0, 0,
                           HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
     if (!hwnd_) return false;
@@ -29,7 +31,7 @@ bool GlOffscreenContext::Create() {
     pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
     pfd.iPixelType = PFD_TYPE_RGBA;
     pfd.cColorBits = 32;
-    pfd.cDepthBits = 0;   // 离屏渲染视频帧不需要深度缓冲
+    pfd.cDepthBits = 0;   // no depth buffer needed for offscreen video frames
     pfd.iLayerType = PFD_MAIN_PLANE;
 
     int pf = ChoosePixelFormat(hdc_, &pfd);
@@ -38,10 +40,12 @@ bool GlOffscreenContext::Create() {
     hglrc_ = wglCreateContext(hdc_);
     if (!hglrc_) return false;
 
-    // 注意:这里创建的是驱动默认版本的兼容上下文(通常足以支持到 GL 3.x/4.x 的函数指针,
-    // 具体渲染时用到的核心 profile 特性由 gl_loader.cpp 里的 wglGetProcAddress 按需加载)。
-    // 如果目标机器驱动较老导致 mpv 报 GL 版本不足,可以在这里改用
-    // wglCreateContextAttribsARB 显式请求 core profile,详见 README 的"疑难排查"部分。
+    // Note: this creates the driver's default compatibility context (its function
+    // pointers usually reach GL 3.x/4.x; the core-profile features used at render
+    // time are loaded on demand via wglGetProcAddress in gl_loader.cpp). If mpv
+    // complains about an insufficient GL version on older drivers, switch to
+    // wglCreateContextAttribsARB here to request a core profile explicitly — see
+    // the troubleshooting guide in README-BUILD.md.
     return true;
 }
 

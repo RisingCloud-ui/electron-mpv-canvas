@@ -1,12 +1,14 @@
 // gl_loader.h
-// Windows 的 opengl32.lib 只暴露 OpenGL 1.1 的函数。FBO / PBO 相关函数(GL 3.0+/ARB)
-// 必须在运行时通过 wglGetProcAddress 自己拿函数指针,这里手写一个最小加载器,
-// 避免引入 GLEW/GLAD 之类的第三方依赖(减少构建链上的不确定性)。
+// Windows' opengl32.lib only exports OpenGL 1.1 entry points. The FBO/PBO
+// functions (GL 3.0+/ARB) must be resolved at runtime via wglGetProcAddress.
+// This is a minimal hand-written loader, avoiding third-party dependencies
+// like GLEW/GLAD (one less moving part in the build chain).
 #pragma once
 #include <windows.h>
 #include <GL/gl.h>
 
-// ---- 手动声明缺失的常量(来自 Khronos 官方枚举值,跨厂商稳定) ----
+// ---- Declare the missing constants by hand (values from the official Khronos
+// enum, stable across vendors) ----
 #ifndef GL_FRAMEBUFFER
 #define GL_FRAMEBUFFER 0x8D40
 #define GL_COLOR_ATTACHMENT0 0x8CE0
@@ -48,12 +50,13 @@ struct GlFunctions {
     PFNGLDELETEBUFFERSPROC glDeleteBuffers = nullptr;
 };
 
-// 全局单例,GL 上下文 current 之后调用一次 LoadGlFunctions()
+// Global singleton; call LoadGlFunctions() once after the GL context is current
 extern GlFunctions gGl;
 
-// 加载上面这些扩展函数指针。必须在 wglMakeCurrent 之后调用。
+// Resolve the extension function pointers above. Must be called after wglMakeCurrent.
 bool LoadGlFunctions();
 
-// 提供给 libmpv render API 的 get_proc_address 回调,同时兼容
-// 1.1 核心函数(走 opengl32.dll 的 GetProcAddress)和扩展函数(走 wglGetProcAddress)。
+// get_proc_address callback handed to the libmpv render API. Handles both GL 1.1
+// core functions (via GetProcAddress on opengl32.dll) and extension functions
+// (via wglGetProcAddress).
 void *MpvGetProcAddress(void *ctx, const char *name);

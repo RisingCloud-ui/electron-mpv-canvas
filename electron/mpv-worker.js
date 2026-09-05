@@ -1,13 +1,14 @@
 'use strict';
 
-// 运行环境:Electron UtilityProcess(纯 Node 环境,能加载原生 addon,
-// 且不像渲染进程那样受沙箱限制)。
-// 通信设计:
-//   - 控制指令(play/pause/seek/loadFile...)量少,走 process.parentPort 普通消息,
-//     由主进程转发,走一次 IPC 拷贝完全没问题。
-//   - 帧数据(高频、大块)走一条专门的 MessagePort,直接交给渲染进程,
-//     不经过主进程 JS 层的二次拷贝。这个 port 由主进程按需转交过来
-//     (每次申请都是新 channel——MessagePort 只能转移一次,复用会撞墙)。
+// Runtime: an Electron UtilityProcess (plain Node environment — can load native
+// addons and is not sandboxed like the renderer).
+// Communication design:
+//   - Control commands (play/pause/seek/loadFile...) are low-volume: ordinary
+//     process.parentPort messages relayed by the main process; one IPC copy is fine.
+//   - Frame data (high-rate, large) travels over a dedicated MessagePort handed
+//     straight to the renderer, with no second copy through main-process JS. The
+//     main process transfers the port on demand (every request gets a fresh
+//     channel — a MessagePort can only be transferred once; reuse hits a wall).
 
 const { MpvPlayer } = require('../lib/index');
 
@@ -18,29 +19,33 @@ let frameTotal = 0;
 
 try {
   player.init(1280, 720);
-  // keep-open=yes 由 C++ Init 设置:EOF 时停在末帧并置 eof-reached 属性,
-  // 播放结束检测读属性而不是 end-file 事件——主动换文件也会发 end-file,
-  // 会和"播放自然结束"混淆;eof-reached 只在真正播完/出错清空列表时置位。
-  player.observeProperty('hwdec-current'); // 验证硬解实际生效
+  // keep-open=yes is set by the C++ Init: at EOF mpv holds the last frame and
+  // raises the eof-reached property. End-of-playback detection reads the property,
+  // not the end-file event — switching files also fires end-file, which would get
+  // confused with natural playback end; eof-reached only sets on true playback
+  // completion / an error clearing the playlist.
+  player.observeProperty('hwdec-current'); // verify hardware decoding is actually active
   player.observeProperty('time-pos');
   player.observeProperty('duration');
   player.observeProperty('pause');
   player.observeProperty('eof-reached');
-  player.observeProperty('paused-for-cache'); // 网络流缓冲状态
-  player.observeProperty('idle-active'); // 播放失败检测:错误 end-file 后 mpv 进 idle;
-                                         // keep-open 挂末帧/loadfile 换文件都不会置位
+  player.observeProperty('paused-for-cache'); // network-stream buffering state
+  player.observeProperty('idle-active'); // playback-failure detection: after a failed
+                                         // end-file mpv enters idle; neither keep-open
+                                         // holding the last frame nor loadfile switching sets it
   console.log('[worker] init ok');
 } catch (err) {
   console.error('[worker] init FAILED:', err && err.message);
 }
 
 player.on('frame', (buffer, w, h) => {
-  if (!framePort) return; // 端口还没建立好(或已关闭)之前先丢帧
+  if (!framePort) return; // drop frames until the port is up (or after it closed)
   frameTotal++;
   try {
-    // ⚠️ Electron utilityProcess 的 MessagePort 不接受 ArrayBuffer 进 transferList
-    // ("Port at index 0 is not a valid port"),只能 structured clone 拷贝传输。
-    // 直接发 Buffer(本身就是可克隆视图),省掉先 slice 一次的额外拷贝。
+    // ⚠️ Electron utilityProcess MessagePorts reject an ArrayBuffer in the
+    // transferList ("Port at index 0 is not a valid port") — only structured-clone
+    // copies work. Send the Buffer directly (it is already a cloneable view),
+    // skipping the extra slice() copy.
     framePort.postMessage({ type: 'frame', width: w, height: h, data: buffer });
   } catch (err) {
     console.error('[worker] postMessage THROW:', err && err.message);
@@ -57,9 +62,10 @@ player.on('event', (evt) => {
 process.parentPort.on('message', (e) => {
   const msg = e.data;
   if (msg.type === 'frame-port') {
-    // 主进程把和渲染进程之间的 MessagePort 一端转交过来。
-    // 渲染端每次申请都拿到新 channel,旧的直接被覆盖;
-    // 端口对端关闭后停发帧,避免往死端口上白做 structured clone。
+    // The main process hands over one end of the MessageChannel shared with the
+    // renderer. Every renderer request delivers a fresh channel; the old one is
+    // simply overwritten. Once a port's peer closes we stop sending — no point
+    // paying for structured clones into a dead port.
     framePort = e.ports[0];
     try { framePort.addEventListener('close', () => { framePort = null; }); } catch (_) {}
     framePort.start();

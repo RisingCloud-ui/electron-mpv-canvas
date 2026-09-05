@@ -2,14 +2,14 @@
 #include <cstring>
 #include "mpv_player.h"
 
-// 跨线程传递给 JS 帧回调的数据包
+// Packet handed across threads to the JS frame callback
 struct FrameData {
-    uint8_t *buf; // Buffer::Copy 拷贝内容后,原始内存在回调里手动 delete[]
+    uint8_t *buf; // Buffer::Copy duplicates the contents; the original memory is delete[]'d in the callback
     size_t size;
     int w, h;
 };
 
-// 跨线程传递给 JS 事件回调的数据包
+// Packet handed across threads to the JS event callback
 struct EventData {
     std::string eventName;
     bool hasProperty = false;
@@ -61,8 +61,9 @@ private:
         Napi::Function onFrame = info[2].As<Napi::Function>();
         Napi::Function onEvent = info[3].As<Napi::Function>();
 
-        // maxQueueSize=2:渲染线程产帧快于 JS 消费时,用 NonBlockingCall 主动丢帧,
-        // 不阻塞渲染线程(丢新帧好过让 mpv 渲染卡住)。
+        // maxQueueSize=2: when the render thread produces frames faster than JS
+        // consumes them, NonBlockingCall drops frames instead of blocking the
+        // render thread (dropping fresh frames beats stalling mpv's render).
         frameTsfn_ = Napi::ThreadSafeFunction::New(
             env, onFrame, "MpvFrameCallback", /*maxQueueSize*/ 2, /*initialThreadCount*/ 1);
         eventTsfn_ = Napi::ThreadSafeFunction::New(
@@ -78,16 +79,18 @@ private:
             pkt->h = h;
 
             auto status = frameTsfn_.NonBlockingCall(pkt, [](Napi::Env env, Napi::Function jsCb, FrameData *d) {
-                // Electron 禁用 napi_create_external_buffer(NAPI_NO_EXTERNAL_BUFFERS),
-                // 不能在自有内存上建零拷贝 Buffer(standalone Node 可以)——只能 Copy,
-                // 多一次拷贝是 Electron 环境的硬约束。
+                // Electron disables napi_create_external_buffer
+                // (NAPI_NO_EXTERNAL_BUFFERS): a zero-copy Buffer over memory we own
+                // is not possible (plain Node allows it) — Buffer::Copy is the only
+                // option, and the extra copy is a hard constraint of the Electron
+                // runtime.
                 Napi::Buffer<uint8_t> buffer = Napi::Buffer<uint8_t>::Copy(env, d->buf, d->size);
                 jsCb.Call({buffer, Napi::Number::New(env, d->w), Napi::Number::New(env, d->h)});
                 delete[] d->buf;
                 delete d;
             });
             if (status != napi_ok) {
-                // 队列满,主动丢帧:释放掉这次分配,不重试、不阻塞
+                // Queue full — drop the frame: free this allocation, no retry, no blocking
                 delete[] pkt->buf;
                 delete pkt;
             }

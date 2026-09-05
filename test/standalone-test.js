@@ -1,16 +1,18 @@
 'use strict';
 
-// 用法: node test/standalone-test.js <视频文件路径>
-// 目的:在接入 Electron 之前,先确认 addon 能正确初始化 GL 上下文、
-// 硬解视频、通过 PBO 读回帧数据、并把帧通过 ThreadSafeFunction 传到 JS。
-// 跑起来后应该能看到稳定接近视频帧率的 "frame #N ..." 日志。
+// Usage: node test/standalone-test.js <video-file-path>
+// Purpose: before wiring up Electron, verify that the addon correctly
+// initializes the GL context, hardware-decodes the video, reads frames back
+// through the PBOs and delivers them to JS via the ThreadSafeFunction.
+// Once running, you should see "frame #N ..." logs at roughly the video's
+// frame rate.
 
 const path = require('path');
 const { MpvPlayer } = require('../lib/index');
 
 const file = process.argv[2];
 if (!file) {
-  console.error('用法: node test/standalone-test.js <video-file>');
+  console.error('usage: node test/standalone-test.js <video-file>');
   process.exit(1);
 }
 
@@ -44,7 +46,7 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// 跑 30 秒后自动退出,方便脚本化测试
+// auto-exit after 30 seconds, for scripted testing
 setTimeout(() => {
   console.log(`done. total frames received: ${frameCount}`);
   player.destroy();

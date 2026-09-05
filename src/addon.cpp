@@ -4,7 +4,7 @@
 
 // 跨线程传递给 JS 帧回调的数据包
 struct FrameData {
-    uint8_t *buf; // 转移所有权给 Napi::Buffer,由其 finalizer 释放
+    uint8_t *buf; // Buffer::Copy 拷贝内容后,原始内存在回调里手动 delete[]
     size_t size;
     int w, h;
 };

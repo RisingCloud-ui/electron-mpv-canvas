@@ -38,7 +38,7 @@ with it — the main process and any open windows survive, and you can restart
 just the utility process. It also keeps native-module loading out of the
 sandboxed renderer process, which can't load native addons directly.
 
-## Why transfer frames via MessagePort instead of `webContents.send`?
+## Why send frames via MessagePort instead of `webContents.send`?
 
 `ipcRenderer`/`webContents.send` structured-clones its payload — for a 4K
 RGBA frame (~33MB), that's a real copy on every single frame. A `MessagePort`

@@ -1,9 +1,12 @@
 # electron-mpv-canvas
 
-Render [mpv](https://mpv.io)'s video output as a real WebGL texture inside an
-Electron page — so your HTML/CSS controls (progress bar, subtitles overlay,
-frosted-glass toolbars, whatever) sit *on top of* the video like any other DOM
-element, instead of being covered by a separate native window.
+**A GPU video rendering bridge for Electron: it hands your app mpv's decoded
+frames as a real WebGL texture, not a native window sitting on top of your
+UI.** That distinction is the whole point — once video is a texture, it's
+just pixels in a `<canvas>`. HTML/CSS controls, subtitle overlays,
+frosted-glass toolbars, blend modes, z-index — all of it works the way it
+already works on every other DOM element, because that's what the video
+region actually is now.
 
 **Status: works on Windows, field-tested.** The code in this repository was
 extracted from a production Electron app that has shipped this exact pipeline
@@ -12,6 +15,29 @@ NVIDIA hardware (nvdec hardware decoding confirmed), including the standalone
 native test and the full Electron integration. It is a small, focused codebase
 rather than a polished release — macOS/Linux are still unimplemented, and the
 API surface may still move. Issues and PRs very welcome.
+
+## What this makes possible
+
+Today, this repo gets you a working video surface inside Electron with full
+DOM overlay capability — see "Why this exists" below for exactly what that
+solves. But "video is now a texture in a compositing pipeline" is a more
+general foundation than "a video player embeds correctly," and it's worth
+being explicit about where that foundation can go, **without pretending any
+of the further-out items are built yet**:
+
+| | Status |
+|---|---|
+| Local file + network stream playback, hardware decoding, DOM-composited controls | **Built, field-tested** (this repo) |
+| Custom GLSL shaders (e.g. [Anime4K](https://github.com/bloc97/Anime4K)) via mpv's classic `--glsl-shaders` path | **Compatible today** — not wired up as a feature in this repo yet, but nothing in the architecture blocks it; mpv applies shaders before handing over the rendered frame, so it's transparent to everything downstream |
+| Reading back the rendered frame for other purposes (screenshots, frame analysis, feeding a separate processing step before display) | **Architecturally possible** — the frame already exists as raw pixels in the readback step; nothing beyond that exists in this repo today |
+| AI upscaling / frame interpolation / other GPU-inference-based enhancement | **Not implemented, and not a small step from here.** This needs GPU resource interop (CUDA/DirectML/Vulkan ↔ OpenGL texture sharing) to avoid a costly GPU→CPU→GPU round trip, which is a materially different engineering problem from what this repo currently solves. Tracked as a real but distant roadmap item, not a claim about current capability |
+| mpv's newer `libplacebo`-based renderer (`gpu-next`) — better HDR/tone-mapping/Dolby Vision | **Blocked upstream**, not by this repo: mpv's own render API (what embedding requires) [doesn't yet expose gpu-next](https://github.com/mpv-player/mpv/issues/10810) — only `--wid`/standalone window mode can use it as of this writing. Worth knowing if you were hoping for it; not something extracting more code from this repo would fix |
+
+The point of this table isn't to oversell — it's the opposite: to be precise
+about exactly one layer that's solid (frame → texture → DOM) versus several
+adjacent, genuinely interesting problems that are *not* solved here, so
+nobody mistakes "the plumbing exists" for "the advanced features exist."
+Full breakdown with what's actually blocking each tier: [`ROADMAP.md`](./ROADMAP.md).
 
 ## Why this exists
 
@@ -59,7 +85,8 @@ UtilityProcess instead of the main process, why WGL instead of ANGLE) is in
 
 | Platform | Status |
 |---|---|
-| Windows | Implemented (WGL offscreen context). Field-tested: standalone + Electron integration, hwdec (nvdec) confirmed. Instrumented frame-rate measurements (2026-09-03): 1080p60 / 4K30 / 4K60 all hold full frame rate when the canvas is rendered at window size (production usage). Caveat: on hybrid-GPU laptops the driver may downclock the dGPU; with a 4K-sized canvas this throttles compositing to single-digit fps (frame delivery stays at full rate — decode is a fixed-function block and is unaffected). Keep the canvas at window size. |
+| Windows | Implemented (WGL offscreen context). Field-tested: standalone + Electron integration, hwdec (nvdec) confirmed, 1080p/1440p/4K60 all hold full frame rate in the source app this was extracted from (canvas at window size — see caveat below). |
+| Windows caveat | On hybrid-GPU laptops the driver may downclock the dGPU; a canvas sized to a 4K display then throttles compositing to single-digit fps (frame *delivery* stays at full rate — decode is a fixed-function block and is unaffected). Keep the canvas at window size, or pin the app's GPU preference to "prefer maximum performance". |
 | macOS | Not implemented. Would need a CGL/Metal offscreen context in place of `gl_context_win.*`. PRs welcome. |
 | Linux | Not implemented. Would need GLX/EGL. PRs welcome. |
 

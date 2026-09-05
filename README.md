@@ -1,5 +1,7 @@
 # electron-mpv-canvas
 
+[![Build](https://github.com/RisingCloud-ui/electron-mpv-canvas/actions/workflows/build.yml/badge.svg)](https://github.com/RisingCloud-ui/electron-mpv-canvas/actions/workflows/build.yml)
+
 **A GPU video rendering bridge for Electron: it hands your app mpv's decoded
 frames as a real WebGL texture, not a native window sitting on top of your
 UI.** That distinction is the whole point — once video is a texture, it's

@@ -1,0 +1,86 @@
+# CI: real compile check of the native addon on a clean Windows runner.
+#
+# What this proves: that a fresh machine following README-BUILD.md (VS Build
+# Tools + Python + node-gyp + a libmpv SDK in the documented layout) builds
+# the addon successfully for both ABIs.
+#
+# Deliberately NOT here: a standalone smoke test. It needs GL 3.0+ entry
+# points via wglGetProcAddress; GitHub-hosted Windows runners only expose the
+# GDI Generic software renderer (GL 1.1), so player init would fail for
+# environmental, not code reasons. (Mesa's llvmpipe can't be substituted
+# either: opengl32.dll lives in system32, which the DLL search order checks
+# before PATH.) Don't "fix" this by adding the smoke test back.
+#
+# Also deliberately not uploaded: the built .node is ABI-specific and this
+# repo ships no libmpv/addon binaries (see LICENSING.md).
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download libmpv dev SDK (zhongfly, latest mpv-dev x86_64)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $release = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/zhongfly/mpv-winbuild/releases/latest" `
+            -Headers @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $asset = $release.assets |
+            Where-Object { $_.name -match '^mpv-dev-x86_64-\d{8}-git-.*\.7z$' } |
+            Select-Object -First 1
+          if (-not $asset) { throw "no mpv-dev-x86_64 asset found in latest release" }
+          Write-Host "Downloading $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mpv-dev.7z
+
+      - name: Extract SDK to third_party/mpv-dev
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          & "C:\Program Files\7-Zip\7z.exe" x mpv-dev.7z -othird_party/mpv-dev -y | Out-Null
+          if (-not (Test-Path "third_party/mpv-dev/libmpv.dll.a")) {
+            throw "unexpected SDK layout: libmpv.dll.a not at archive root"
+          }
+
+      - name: Build addon (Node ABI)
+        run: npm run build
+
+      - name: Build addon (Electron ABI)
+        run: npm run build:electron
+
+      - name: Verify addon artifact
+        run: |
+          if (-not (Test-Path "build/Release/mpv_addon.node")) {
+            throw "build/Release/mpv_addon.node missing after build"
+          }
+          Get-Item "build/Release/mpv_addon.node" | Select-Object Name, Length
+
+      - name: Syntax-check all JS
+        run: |
+          $files = Get-ChildItem -Path lib, electron, test -Recurse -Filter *.js
+          foreach ($f in $files) {
+            node --check $f.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Write-Host "checked $($files.Count) JS files"

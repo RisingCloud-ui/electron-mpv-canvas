@@ -90,6 +90,10 @@ UtilityProcess instead of the main process, why WGL instead of ANGLE) is in
 | macOS | Not implemented. Would need a CGL/Metal offscreen context in place of `gl_context_win.*`. PRs welcome. |
 | Linux | Not implemented. Would need GLX/EGL. PRs welcome. |
 
+> Development currently focuses on Windows production use. macOS/Linux are
+> tracked in [`ROADMAP.md`](./ROADMAP.md) (v0.2) — community contributions
+> welcome.
+
 ## Quick start
 
 ```bash

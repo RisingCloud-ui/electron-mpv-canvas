@@ -71,6 +71,37 @@ problem (GPU texture interop across graphics/compute APIs inside Electron),
 that's a great thing to open a discussion about; it's the kind of problem
 best solved with more than one person thinking about it.
 
+### What a hook could look like (design sketch — not built, not started)
+
+For shape only; no code or API for this exists in the repo. If the interop
+problem above is ever solved, the likely shape is an *additional*
+frame-delivery path beside the current CPU one:
+
+    player.enableGpuFrames({
+      onGpuFrame: (sharedHandle, width, height, format) => {
+        // sharedHandle: an OS/GL shared texture handle (or memory object)
+        // imported into the renderer's GL context — no CPU round trip
+      },
+    })
+
+What makes this "hard" rather than "unblocked": choosing a cross-API sharing
+mechanism that actually works inside Electron's renderer (WGL/DX interop,
+external-memory extensions), keeping handle lifetimes synchronized with
+mpv's render loop, and defining the fallback for machines where interop is
+unavailable.
+
+### Why the current CPU path stays the default (measured, not vibes)
+
+Zero-copy ideas — including a SharedArrayBuffer-based handoff — have been
+evaluated and are deliberately kept off the roadmap as a performance play.
+In the source application this was extracted from, the copy/upload path held
+full 4K60 delivery with per-frame GPU upload around 0.6 ms at production
+canvas size, and an experiment removing one copy via a ring buffer showed
+zero benefit and was reverted (measured 2026-09). Zero-copy would only matter
+for memory footprint or for feeding frames to off-thread consumers, and
+SharedArrayBuffer additionally requires COOP/COEP cross-origin isolation in
+the renderer. Revisit only if one of those becomes a real requirement.
+
 ## Explicitly not planned
 
 - Bundling any libmpv binary (licensing — see `LICENSING.md`; you always

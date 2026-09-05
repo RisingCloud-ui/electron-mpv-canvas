@@ -67,6 +67,21 @@ and handed to the Electron renderer process where a `<canvas>`'s WebGL context
 uploads them as a texture. The video is just pixels in a `<canvas>` — CSS,
 z-index, blend modes, all work normally.
 
+## Who is this for
+
+The library is deliberately small: one primitive — mpv's decoded output as a
+WebGL texture. The scenarios below are what that primitive **can support**;
+they are not shipped features and not claims of existing adopters:
+
+- **Custom player UIs** — any HTML/CSS control stack, overlays, interactive
+  hotspots drawn on top of video
+- **Annotation & review tools** — draw, tag, and timecode over frames with
+  plain DOM/SVG (labeling, QC, review workflows)
+- **Creative apps & signage** — shaders, blend modes, and live video
+  composited inside a web stack; kiosks with DOM layout around a video plane
+- **Analysis front-ends** — frames already arrive as JS bytes, so feeding
+  them to wasm/ML processing is straightforward today
+
 ## Architecture
 
 ```

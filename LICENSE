@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 [RisingCloud-ui]
+Copyright (c) 2026 RisingCloud-ui
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project's own code is released under the MIT license. libmpv, the
-runtime dependency, is an independent project whose licensing terms
-(GPLv2+ by default, or LGPLv2.1+ when built with -Dgpl=false) are unaffected
-by this license — you are responsible for choosing a libmpv build and
-complying with its license. This project does not ship any libmpv binaries.
